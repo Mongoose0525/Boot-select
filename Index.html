@@ -1,0 +1,3109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ShellChooser</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap');
+
+* { margin:0; padding:0; box-sizing:border-box; user-select:none; -webkit-font-smoothing:antialiased; }
+
+html, body {
+  width:100%; height:100%;
+  background:#0A0C10;
+  overflow:hidden;
+  font-family:'Inter', sans-serif;
+}
+
+.scanlines {
+  position:fixed; inset:0; pointer-events:none; z-index:5;
+  background:
+    radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%),
+    repeating-linear-gradient(rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px);
+}
+
+.frame {
+  position:relative;
+  width:100%; height:100%;
+  display:flex; flex-direction:column;
+  transition: opacity .35s ease;
+}
+
+.frame.exiting { opacity:0; }
+
+body.ui-locked {
+    pointer-events: none;
+}
+
+body.ui-locked button,
+body.ui-locked input {
+    pointer-events: none;
+}
+
+.topbar {
+  display:flex; justify-content:space-between; align-items:center;
+  padding: 3.2vh 4vw 0;
+  font-family:'IBM Plex Mono', monospace;
+  color:#6B7280;
+  letter-spacing:0.18em;
+  font-size:12px;
+  transition: opacity .35s ease;
+}
+
+.topbar .label { color:#8b91a0; }
+.topbar .label b { color:#8b91a0; font-weight:500; letter-spacing:0.18em; }
+
+.stage {
+  flex:1;
+  display:flex; align-items:center; justify-content:center;
+  gap:6vw;
+  position:relative;
+}
+
+.tile {
+  --accent:#FFFFFF;
+  position:relative;
+  width:min(22vw, 300px);
+  background:#14181F;
+  border:1px solid #22262f;
+  border-radius:6px;
+  padding:5vh 0 0;
+  display:flex; flex-direction:column; align-items:center;
+  cursor:pointer;
+  outline:none;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease, opacity .4s ease;
+}
+
+/* Mouse-only visual feedback — pure CSS, no JS state involved */
+.tile:hover {
+  border-color: var(--accent);
+  background:#171b23;
+  transform: translateY(-4px);
+}
+
+.tile:hover .icon-wrap {
+  opacity:1;
+  transform:scale(1);
+  filter: drop-shadow(0 0 16px rgba(255,255,255,0.55));
+}
+
+.tile:hover .meter-fill {
+  width:100%;
+  transition: width 0.5s cubic-bezier(.2,.7,.3,1);
+}
+
+
+/* Keyboard / gamepad selection — driven by .selected, independent of mouse */
+.tile.selected {
+  border-color: var(--accent);
+  background:#171b23;
+  transform: translateY(-4px);
+}
+
+.tile.selected .icon-wrap {
+  opacity:1;
+  transform:scale(1);
+  filter: drop-shadow(0 0 16px rgba(255,255,255,0.55));
+}
+
+.tile.selected .meter-fill {
+  width:100%;
+  transition: width 0.5s cubic-bezier(.2,.7,.3,1);
+}
+
+body.input-mode-keys .tile:hover:not(.selected) {
+  border-color:#22262f;
+  background:#14181F;
+  transform:none;
+}
+body.input-mode-keys .tile:hover:not(.selected) .icon-wrap {
+  opacity:0.4;
+  transform:scale(0.82);
+  filter:none;
+}
+body.input-mode-keys .tile:hover:not(.selected) .meter-fill {
+  width:0%;
+}
+
+.icon-wrap {
+  width:96px; height:96px;
+  display:flex; align-items:center; justify-content:center;
+  opacity:0.4;
+  transform:scale(0.82);
+  transition: opacity .2s ease, transform .25s cubic-bezier(.2,.7,.3,1.4), filter .2s ease;
+}
+
+.icon-wrap img {
+  width:70%; height:70%;
+  object-fit:contain;
+}
+
+.tile .name {
+  margin-top:2.6vh;
+  font-size:18px;
+  font-weight:500;
+  color:#E6E8EB;
+  letter-spacing:0.01em;
+}
+
+.tile .sub {
+  margin-top:0.5vh;
+  font-family:'IBM Plex Mono', monospace;
+  font-size:11px;
+  letter-spacing:0.12em;
+  color:#565c69;
+  text-transform:uppercase;
+  margin-bottom:4.5vh;
+}
+
+.meter {
+  width:100%;
+  height:3px;
+  background:#1c2028;
+  border-radius:0 0 6px 6px;
+  overflow:hidden;
+}
+
+.meter-fill {
+  height:100%;
+  width:0%;
+  background:#FFFFFF;
+  box-shadow:0 0 8px rgba(255,255,255,0.6);
+  transition: width .18s ease;
+}
+
+/* ---- confirm sequence ---- */
+
+.tile.dismissed {
+  opacity:0;
+  transform: scale(0.8) translateY(-4px);
+  pointer-events:none;
+  transition: opacity .4s ease, transform .4s ease;
+}
+
+.tile.chosen {
+  z-index:10;
+  transition: transform .55s cubic-bezier(.22,.9,.32,1), border-color .18s ease, background .18s ease;
+}
+
+.tile.chosen .meter { opacity:0; transition: opacity .2s ease; }
+
+.hint {
+  position: relative;
+  bottom: 0;
+  text-align: center;
+  padding: 0 12px 4vh;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: clamp(10px, 0.8vw, 15px);
+  letter-spacing: 0.12em;
+  color: #969696;
+  transition: opacity .3s ease, bottom .25s ease;
+  min-height: 1em;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Less vertical space */
+@media (max-height: 800px) {
+  .hint {
+    bottom: 20px;
+    padding-bottom: 2vh;
+  }
+}
+
+@media (max-height: 650px) {
+  .hint {
+    bottom: 40px;
+    padding-bottom: 1vh;
+  }
+}
+
+@media (max-height: 500px) {
+  .hint {
+    bottom: 60px;
+    padding-bottom: 0;
+  }
+}
+
+.hint kbd {
+  color: #8b91a0;
+  border: 1px solid #2a2f3a;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.hint .gp-name {
+  margin-left: 8px;
+  color: #3a3f4b;
+}
+/* Custom ShellChooser cursor */
+
+body:not(.legacy-cursor):not(.cursor-hidden),
+body:not(.legacy-cursor):not(.cursor-hidden) * {
+    cursor: url("./Assets/Icons/Cursor.svg") 4 2, auto !important;
+}
+/* default hover variant */
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="triangle"] button:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="triangle"] button:hover *,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="triangle"] input:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="triangle"] .toggle-switch:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="triangle"] .toggle-switch:hover * {
+    cursor: url("./Assets/Icons/Cursor50.svg") 4 2, auto !important;
+}
+/* Arrow cursor */
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"],
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] * {
+    cursor: url("./Assets/Icons/CursorArrow.svg") 4 2, auto !important;
+}
+/* Arrow hover variant */
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] button:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] button:hover *,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] input:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] .toggle-switch:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="arrow"] .toggle-switch:hover * {
+    cursor: url("./Assets/Icons/CursorArrow50.svg") 4 2, auto !important;
+}
+/* Circle cursor */
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"],
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] * {
+    cursor: url("./Assets/Icons/CursorCircle.svg") 16 16, auto !important;
+}
+/* Circle hover variant */
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] button:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] button:hover *,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] input:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] .toggle-switch:hover,
+body:not(.legacy-cursor):not(.cursor-hidden)[data-cursor-style="circle"] .toggle-switch:hover * {
+    cursor: url("./Assets/Icons/CursorCircle25.svg") 16 16, auto !important;
+}
+/* Hide Windows cursor */
+body.cursor-hidden,
+body.cursor-hidden * {
+    cursor: none !important;
+}
+/* Power setting tab */
+.settings-tab-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 11px;
+    margin-top: 4px;
+
+    background: transparent;
+    border: none;
+   /* border-top: 1px solid #2a2f3a; */
+    border-radius: 3px;
+
+    color: #8b91a0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-align: left;
+    cursor: pointer;
+
+    transition: background .15s ease, color .15s ease;
+}
+
+body:not(.input-mode-keys) .settings-tab-button:hover,
+body.input-mode-keys .settings-tab-button:focus {
+    background: #222833;
+    color: #E6E8EB;
+}
+
+body.input-mode-keys .settings-tab-button:focus {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 2px;
+}
+
+body:not(.input-mode-keys) .settings-tab-button:focus {
+    outline: none;
+}
+
+.settings-tab-arrow {
+    font-size: 17px;
+    line-height: 10px;
+    transition: transform .25s ease;
+}
+
+.settings-tab-button[aria-expanded="true"] .settings-tab-arrow {
+    transform: rotate(90deg);
+}
+
+.power-settings-panel {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+
+    transition:
+        max-height .25s ease,
+        opacity .2s ease;
+}
+
+.power-settings-panel.open {
+    max-height: 110px;
+    opacity: 1;
+    pointer-events: auto;
+}
+.power-settings-panel {
+    background: #10141A;
+    border-left: 2px solid #343B48;
+    margin-left: 5px;
+    margin-right: 5px;
+    border-radius: 0 0 3px 3px;
+}
+
+.power-settings-panel.open {
+    max-height: 110px;
+    opacity: 1;
+    pointer-events: auto;
+    margin-top: 2px;
+    margin-bottom: 4px;
+}
+
+.power-settings-panel .power-setting {
+    padding: 8px 8px;
+    margin-top: 0;
+    border-top: 1px solid #202630;
+}
+
+.power-settings-panel .power-setting:first-child {
+    border-top: none;
+}
+/* Cursor style selector */
+
+.cursor-style-setting {
+    padding: 7px 11px;
+    border-top: 1px solid #2a2f3a;
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    max-height: 100px;
+    opacity: 1;
+    overflow: hidden;
+    transform: translateY(0);
+
+    transition:
+        max-height .25s ease,
+        opacity .2s ease,
+        transform .25s ease,
+        padding .25s ease,
+        margin .25s ease,
+        border-width .25s ease;
+}
+
+body.legacy-cursor .cursor-style-setting {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    border-top-width: 0;
+    pointer-events: none;
+}
+
+.cursor-style-setting > label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #8b91a0;
+    letter-spacing: 0.08em;
+}
+
+.cursor-style-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+}
+
+.cursor-choice,
+.cursor-placeholder {
+    width: 100%;
+    height: 30px;
+    background: #171b23;
+    border: 1px solid #303744;
+    border-radius: 4px;
+}
+
+.cursor-choice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+}
+
+.cursor-choice img {
+    width: 19.6px;
+    height: 19.6px;
+    object-fit: contain;
+}
+
+body:not(.input-mode-keys) .cursor-choice:hover {
+    background: #222833;
+    border-color: #8b91a0;
+}
+
+.cursor-choice.selected {
+    background: #222833;
+    border-color: #E6E8EB;
+}
+
+body.input-mode-keys .cursor-choice:focus {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 3px;
+}
+
+.cursor-placeholder {
+    opacity: 0.35;
+    border-style: dashed;
+    pointer-events: none;
+}
+/* battery */
+.battery-icon {
+    position: relative;
+    width: 25px;
+    height: 13px;
+    border: 1.5px solid #8b91a0;
+    border-radius: 3px;
+    padding: 2px;
+}
+
+.battery-icon::after {
+    content: "";
+    position: absolute;
+    right: -4px;
+    top: 3px;
+    width: 2px;
+    height: 5px;
+    background: #8b91a0;
+}
+
+.battery-fill {
+    height: 100%;
+    width: 50%;
+    background: #8b91a0;
+    border-radius: 1px;
+    transition: width .3s ease;
+}
+
+.battery-bolt {
+    display: none;
+    position: absolute;
+    inset: -1px 0 0;
+    align-items: center;
+    justify-content: center;
+    color: #FACC15;
+    font-size: 10px;
+	filter: grayscale(1) brightness(1);
+}
+
+.battery-indicator.charging .battery-bolt {
+    display: flex;
+}
+
+.status-bar {
+    position: fixed;
+    right: 3vw;
+    bottom: 2.5vh;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    z-index: 10;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: #8b91a0;
+    pointer-events: none;
+}
+
+#clock {
+    color: #8b91a0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.08em;
+}
+
+.battery-indicator {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.menu-container {
+    position: relative;
+    pointer-events: auto;
+}
+
+.menu-button {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+
+    color: #8b91a0;
+    font-size: 21px;
+    line-height: 1;
+    cursor: pointer;
+
+    transition: background .15s ease, border-color .15s ease;
+}
+
+body:not(.input-mode-keys) .menu-button:hover,
+.menu-container.open .menu-button {
+    background: #171b23;
+    border-color: #2a2f3a;
+}
+/* Hide keyboard/gamepad focus highlight while using the mouse */
+body:not(.input-mode-keys) .menu-button:focus {
+    outline: none;
+    background: transparent;
+    border-color: transparent;
+}
+.menu-dropdown {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 9px);
+
+    min-width: 155px;
+    display: none;
+    flex-direction: column;
+    padding: 5px;
+
+    background: #14181F;
+    border: 1px solid #2a2f3a;
+    border-radius: 5px;
+
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+
+.menu-container.open .menu-dropdown {
+    display: flex;
+}
+
+.menu-option {
+    width: 100%;
+    padding: 9px 11px;
+
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+
+    color: #8b91a0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-align: left;
+
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+/* Button underglow */
+.menu-option,
+.power-option,
+.confirm-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.menu-option::before,
+.power-option::before,
+.confirm-button::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    box-shadow: inset 0 -9px 13px -8px var(--click-glow, rgba(230, 232, 235, 0.7));
+    transition: opacity .12s ease;
+}
+
+/* Short click pulse */
+.menu-option.clicked::before,
+.power-option.clicked::before,
+.confirm-button.clicked::before {
+    animation: dropdownClickGlow .25s ease-out;
+}
+
+/* Persistent glow while holding */
+.power-option.hold-active::before,
+.confirm-button.hold-active::before {
+    opacity: 1;
+}
+
+@keyframes dropdownClickGlow {
+    0%   { opacity: 0; }
+    30%  { opacity: 0.75; }
+    100% { opacity: 0; }
+}
+.menu-option {
+    --click-glow: rgba(230, 232, 235, 0.7);
+}
+
+.power-option[data-power="shutdown"],
+.confirm-dialog[data-action="shutdown"] #power-confirm-yes {
+    --click-glow: rgba(229, 115, 115, 0.85);
+}
+
+.power-option[data-power="restart"],
+.confirm-dialog[data-action="restart"] #power-confirm-yes {
+    --click-glow: rgba(229, 196, 106, 0.85);
+}
+
+.power-option[data-power="logoff"],
+.confirm-dialog[data-action="logoff"] #power-confirm-yes {
+    --click-glow: rgba(230, 232, 235, 0.8);
+}
+
+#power-confirm-no {
+    --click-glow: rgba(230, 232, 235, 0.7);
+}
+/* Mouse mode */
+body:not(.input-mode-keys) .menu-option:hover {
+    background: #222833;
+    color: #E6E8EB;
+}
+
+/* Keyboard / gamepad mode */
+body.input-mode-keys .menu-option:focus {
+    background: #222833;
+    color: #E6E8EB;
+}
+
+body.input-mode-keys .menu-button:focus,
+body.input-mode-keys .menu-option:focus {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 4px;
+}
+/* Hide dropdown focus outline while using the mouse */
+body:not(.input-mode-keys) .menu-button:focus-visible,
+body:not(.input-mode-keys) .menu-option:focus-visible {
+    outline: none;
+}
+/* ---- Power menu ---- */
+
+.power-container {
+    position: fixed;
+    left: 3vw;
+    bottom: 2.5vh;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+.power-button {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+
+    color: #8b91a0;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+
+    transition: background .15s ease, border-color .15s ease;
+}
+.power-icon {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+body:not(.input-mode-keys) .power-button:hover,
+.power-container.open .power-button {
+    background: #171b23;
+    border-color: #2a2f3a;
+}
+
+body:not(.input-mode-keys) .power-button:focus {
+    outline: none;
+    background: transparent;
+    border-color: transparent;
+}
+
+.power-dropdown {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 9px);
+
+    min-width: 155px;
+    display: none;
+    flex-direction: column;
+    padding: 5px;
+
+    background: #14181F;
+    border: 1px solid #2a2f3a;
+    border-radius: 5px;
+
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+
+.power-container.open .power-dropdown {
+    display: flex;
+}
+
+.power-option {
+    width: 100%;
+    padding: 9px 11px;
+
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+
+    color: #8b91a0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-align: left;
+
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+}
+
+body:not(.input-mode-keys) .power-option:hover,
+body.input-mode-keys .power-option:focus {
+    background: #222833;
+    color: #E6E8EB;
+}
+
+body.input-mode-keys .power-button:focus {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 4px;
+}
+
+body.input-mode-keys .power-option:focus {
+    outline: 2px solid var(--power-accent);
+    outline-offset: 4px;
+}
+
+body:not(.input-mode-keys) .power-option:focus-visible {
+    outline: none;
+}
+
+.power-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dropdown-icon {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    flex-shrink: 0;
+    opacity: 0.65;
+    transition: opacity .15s ease;
+}
+
+
+/* Power option accent colors */
+.power-option[data-power="shutdown"] {
+    --power-accent: #E57373;
+}
+
+.power-option[data-power="restart"] {
+    --power-accent: #E5C46A;
+}
+
+.power-option[data-power="logoff"] {
+    --power-accent: #E6E8EB;
+}
+
+/* Mouse hover and keyboard/gamepad selection */
+body:not(.input-mode-keys) .power-option:hover,
+body.input-mode-keys .power-option:focus {
+    background: #222833;
+    color: var(--power-accent);
+}
+
+/* Match icon color to the option */
+
+
+/* Apply the accent to SVG icons */
+.dropdown-icon {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    flex-shrink: 0;
+    opacity: 0.65;
+    filter: brightness(0) invert(0.65);
+    transition: opacity .15s ease, filter .15s ease;
+}
+
+/* Shutdown — red */
+body:not(.input-mode-keys) .power-option[data-power="shutdown"]:hover .dropdown-icon,
+body.input-mode-keys .power-option[data-power="shutdown"]:focus .dropdown-icon {
+    opacity: 1;
+    filter: brightness(0) saturate(100%) invert(56%) sepia(24%) saturate(1114%) hue-rotate(314deg) brightness(94%);
+}
+
+/* Restart — yellow */
+body:not(.input-mode-keys) .power-option[data-power="restart"]:hover .dropdown-icon,
+body.input-mode-keys .power-option[data-power="restart"]:focus .dropdown-icon {
+    opacity: 1;
+    filter: brightness(0) saturate(100%) invert(79%) sepia(28%) saturate(631%) hue-rotate(6deg) brightness(96%);
+}
+
+/* Log Off — light gray */
+body:not(.input-mode-keys) .power-option[data-power="logoff"]:hover .dropdown-icon,
+body.input-mode-keys .power-option[data-power="logoff"]:focus .dropdown-icon {
+    opacity: 1;
+    filter: brightness(0) invert(0.9);
+}
+
+.volume-control {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 10px 11px 8px;
+    border-top: 1px solid #2a2f3a;
+    margin-top: 4px;
+}
+
+.volume-control label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #8b91a0;
+    letter-spacing: 0.08em;
+}
+
+#volume-value {
+    color: #E6E8EB;
+}
+
+.volume-slider {
+    width: 100%;
+    height: 4px;
+    accent-color: #E6E8EB;
+    cursor: pointer;
+}
+/* Shut down prompt setting */
+/* Power confirmation setting */
+
+.power-setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 10px 11px;
+    margin-top: 4px;
+    border-top: 1px solid #2a2f3a;
+}
+
+.power-setting > label:first-child {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #8b91a0;
+    letter-spacing: 0.08em;
+}
+
+/* Toggle switch */
+
+.toggle-switch {
+    position: relative;
+    display: inline-flex;
+    width: 32px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-track {
+    position: absolute;
+    inset: 0;
+    background: #303744;
+    border: 1px solid #454d5b;
+    border-radius: 20px;
+    transition: background .2s ease, border-color .2s ease;
+}
+
+.toggle-track::before {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    left: 3px;
+    top: 3px;
+    background: #8b91a0;
+    border-radius: 50%;
+    transition: transform .2s ease, background .2s ease;
+}
+
+.toggle-switch input:checked + .toggle-track {
+    background: #E6E8EB;
+    border-color: #E6E8EB;
+}
+
+.toggle-switch input:checked + .toggle-track::before {
+    transform: translateX(14px);
+    background: #14181F;
+}
+
+.toggle-switch input:focus-visible + .toggle-track {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 3px;
+}
+body.input-mode-keys .toggle-switch input:focus + .toggle-track {
+    outline: 2px solid #E6E8EB;
+    outline-offset: 3px;
+}
+/* Steam desktop mode + console toggle */
+
+.steam-tile-wrapper {
+    position: relative;
+    width: min(22vw, 300px);
+}
+
+.steam-tile-wrapper .tile {
+    width: 100%;
+}
+
+.steam-desktop-option {
+    position: absolute;
+    top: calc(100% + 18px);
+    left: 50%;
+    transform: translateX(-50%);
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+
+    width: max-content;
+    white-space: nowrap;
+
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: #8b91a0;
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transition: opacity .2s ease, color .2s ease;
+}
+
+.steam-tile-wrapper.option-visible .steam-desktop-option {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.steam-desktop-option:has(input:checked) {
+    color: #E6E8EB;
+}
+
+.steam-desktop-option .toggle-switch {
+    width: 32px;
+    height: 18px;
+}
+.steam-tile-wrapper:not(.console-option-enabled) .steam-desktop-option {
+    display: none;
+}
+/* ---------- Power confirmation dialog ---------- */
+
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+}
+
+.confirm-overlay.open {
+    display: flex;
+}
+
+.confirm-dialog {
+    width: min(400px, 90vw);
+    padding: 24px;
+    background: #14181F;
+    border: 1px solid #343B48;
+    border-radius: 6px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    animation: dialogIntro .18s ease-out;
+}
+
+.confirm-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #E6E8EB;
+    margin-bottom: 18px;
+}
+
+.confirm-message {
+    font-size: 13px;
+    color: #A5ABB7;
+    line-height: 1.6;
+    margin-bottom: 25px;
+}
+
+.confirm-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.confirm-button {
+    min-width: 85px;
+    padding: 9px 16px;
+    background: #222833;
+    border: 1px solid #343B48;
+    border-radius: 4px;
+    color: #E6E8EB;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+}
+
+/* Hold-to-confirm progress indicator */
+
+.power-option,
+.confirm-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.power-option::after,
+.confirm-button::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0%;
+    height: 2px;
+    background: var(--power-accent, var(--confirm-accent, #E6E8EB));
+    z-index: 1;
+}
+
+body.input-mode-keys .power-option:focus {
+    outline: 2px solid var(--power-accent);
+    outline-offset: 2px;
+}
+
+.power-option.hold-active::after,
+.confirm-button.hold-active::after {
+    animation: holdProgress 0.5s linear forwards;
+}
+
+@keyframes holdProgress {
+    from { width: 0%; }
+    to { width: 100%; }
+}
+/* Mouse mode */
+body:not(.input-mode-keys) .confirm-button:hover {
+    background: #303947;
+    border-color: #8b91a0;
+    outline: none;
+}
+
+/* Keyboard / gamepad mode */
+body.input-mode-keys .confirm-button.selected {
+    background: #303947;
+    border-color: #8b91a0;
+    outline: none;
+}
+
+/* Ignore mouse hover while using keyboard/gamepad */
+body.input-mode-keys .confirm-button:hover:not(.selected) {
+    background: #222833;
+    border-color: #343B48;
+}
+
+body:not(.input-mode-keys) .confirm-button:focus {
+    outline: none;
+}
+
+/* Yes button accent depends on the selected power action */
+.confirm-dialog[data-action="shutdown"] #power-confirm-yes {
+    --confirm-accent: #E57373;
+}
+
+.confirm-dialog[data-action="restart"] #power-confirm-yes {
+    --confirm-accent: #E5C46A;
+}
+
+.confirm-dialog[data-action="logoff"] #power-confirm-yes {
+    --confirm-accent: #E6E8EB;
+}
+
+body:not(.input-mode-keys) .confirm-dialog #power-confirm-yes:hover,
+body.input-mode-keys .confirm-dialog #power-confirm-yes.selected {
+    color: var(--confirm-accent);
+    border-color: var(--confirm-accent);
+}
+
+
+@keyframes dialogIntro {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ---- Intro animation ---- */
+
+.frame {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    opacity: 1;
+    transition: opacity .35s ease;
+}
+
+.frame.intro {
+    animation: introFade 0.7s ease;
+}
+
+.frame.exiting {
+    opacity: 0;
+}
+
+@keyframes introFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+/* ---------- Tile intro animation ---------- */
+.frame.intro .tile {
+    opacity: 0;
+    animation: tileIntro 0.65s cubic-bezier(.2, .8, .2, 1) forwards;
+}
+
+.frame.intro .tile:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.frame.intro .tile:nth-child(2) {
+    animation-delay: 0.25s;
+}
+
+@keyframes tileIntro {
+    from {
+        opacity: 0;
+        transform: translateY(35px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+
+<div class="frame" id="frame">
+  <div class="topbar" id="topbar">
+    <div class="label">BOOT&nbsp;SELECT</div>
+    <div class="label"><b id="controller-label"></b></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <button class="tile" id="btn-explorer" data-choice="explorer" tabindex="0">
+      <div class="icon-wrap">
+        <img src="./Assets/BootDecals/win10.svg" alt="" style="filter: brightness(0) invert(1);"/>
+      </div>
+      <div class="name">Desktop</div>
+      <div class="sub">Windows</div>
+      <div class="meter"><div class="meter-fill"></div></div>
+    </button>
+
+    <div class="steam-tile-wrapper">
+        <button class="tile" id="btn-steam" data-choice="steam" tabindex="1">
+            <div class="icon-wrap">
+                <img src="./Assets/BootDecals/steammono.svg" alt="" style="filter: invert(1);"/>
+            </div>
+            <div class="name">Big Picture</div>
+            <div class="sub">Steam</div>
+            <div class="meter"><div class="meter-fill"></div></div>
+        </button>
+    
+        <div class="steam-desktop-option">
+            <span>Desktop mode + console</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="steam-desktop-toggle">
+                <span class="toggle-track"></span>
+            </label>
+        </div>
+    </div>
+  </div>
+
+  <div class="hint" id="hint"><span id="hint-text"><kbd>&larr;</kbd><kbd>&rarr;</kbd> select &nbsp; <kbd>Enter</kbd> launch</span></div>
+  
+<div class="status-bar">
+    <div class="battery-indicator" id="battery-indicator">
+        <span id="battery-percent">--%</span>
+        <div class="battery-icon">
+            <div class="battery-fill" id="battery-fill"></div>
+            <div class="battery-bolt">⚡</div>
+        </div>
+    </div>
+
+    <span id="clock">--:--</span>
+
+    <div class="menu-container">
+        <button class="menu-button" id="menu-button" aria-label="More options" aria-expanded="false">
+            ⋮
+        </button>
+
+        <div class="menu-dropdown" id="menu-dropdown">
+            <button class="menu-option" data-action="cmd">Launch Cmd</button>
+            <button class="menu-option" data-action="settings">Win Settings</button>
+            <button
+                class="settings-tab-button"
+                id="power-settings-button"
+                aria-expanded="false"
+                aria-controls="power-settings-panel"
+            >
+                <span>Power</span>
+                <span class="settings-tab-arrow">›</span>
+            </button>
+            
+            <div class="power-settings-panel" id="power-settings-panel">
+                <div class="power-setting">
+                    <label for="power-confirm-toggle">Shutdown prompts</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="power-confirm-toggle" checked>
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            
+                <div class="power-setting">
+                    <label for="hold-power-toggle">Hold to confirm</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="hold-power-toggle">
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="power-setting">
+                <label for="legacy-cursor-toggle">Legacy cursor</label>
+            
+                <label class="toggle-switch">
+                    <input type="checkbox" id="legacy-cursor-toggle">
+                    <span class="toggle-track"></span>
+                </label>
+            </div>
+            <div class="cursor-style-setting">
+                <label>Cursors</label>
+            
+                <div class="cursor-style-grid">
+                    <button class="cursor-choice" data-cursor="triangle" title="Triangle cursor">
+                        <img src="./Assets/Icons/Cursor.svg" alt="">
+                    </button>
+                    <button class="cursor-choice" data-cursor="arrow" title="Arrow cursor">
+                        <img src="./Assets/Icons/CursorArrow.svg" alt="">
+                    </button>
+                    <button class="cursor-choice" data-cursor="circle" title="Circle cursor">
+                        <img src="./Assets/Icons/CursorCircle.svg" alt="">
+                    </button>
+
+                    <div class="cursor-placeholder"></div>
+                </div>
+            </div>
+            <div class="volume-control">
+                <label for="volume-slider">
+                    UI VOLUME
+                    <span id="volume-value">50%</span>
+                </label>
+                <input
+                    type="range"
+                    id="volume-slider"
+                    class="volume-slider"
+                    min="0"
+                    max="100"
+                    value="50"
+                    step="1"
+                >
+            </div>
+
+        </div>
+    </div>
+</div>
+<div class="power-container">
+    <button
+        class="power-button"
+        id="power-button"
+        aria-label="Power options"
+        aria-expanded="false"
+    >
+     <img src="./Assets/Icons/Shutdown.svg" alt="" class="power-icon">
+    </button>
+
+
+<div class="power-dropdown" id="power-dropdown">
+    <button class="power-option" data-power="logoff">
+        <img src="./Assets/Icons/Logoff.svg" class="dropdown-icon" alt="">
+        <span>Log Off</span>
+    </button>
+
+    <button class="power-option" data-power="restart">
+        <img src="./Assets/Icons/Restart.svg" class="dropdown-icon" alt="">
+        <span>Restart</span>
+    </button>
+
+    <button class="power-option" data-power="shutdown">
+        <img src="./Assets/Icons/Shutdown.svg" class="dropdown-icon" alt="">
+        <span>Shut Down</span>
+    </button>
+</div>
+
+<div class="confirm-overlay" id="power-confirm">
+    <div class="confirm-dialog">
+        <div class="confirm-title">Proceed with action?</div>
+
+        <div class="confirm-message" id="power-confirm-message">
+            Are you sure?
+        </div>
+
+        <div class="confirm-buttons">
+            <button class="confirm-button" id="power-confirm-yes">Yes</button>
+            <button class="confirm-button" id="power-confirm-no">No</button>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<script>
+    // ---------- UI sound effects ----------
+
+    const soundFiles = {
+    misc: "./Assets/Sfx/Steam/Deck UI Misc 10.mp3",
+    tab: "./Assets/Sfx/Steam/Deck UI Tab Transition 01.mp3",
+    navigation: "./Assets/Sfx/Steam/Deck UI Navigation.mp3",
+    positive: "./Assets/Sfx/Steam/Confirmation Positive.mp3",
+    toast: "./Assets/Sfx/Steam/Deck UI Toast.mp3",
+    volume: "./Assets/Sfx/Steam/Deck UI Volume.mp3",
+
+    toggleon: "./Assets/Sfx/Steam/Deck UI Switch Toggle On.mp3",
+    toggleoff: "./Assets/Sfx/Steam/Deck UI Switch Toggle Off.mp3",
+
+    shutdownhold: "./Assets/Sfx/Steam/Deck UI Misc 01.mp3",
+
+    steamSelect: "./Assets/Sfx/Steam/Deck UI Into Game Detail.mp3",
+    steamCancel: "./Assets/Sfx/Steam/Deck UI Out Of Game Detail.mp3",
+    steamLaunch: "./Assets/Sfx/Steam/Deck UI Launch Game.mp3",
+
+    windowsSelect: "./Assets/Sfx/Steam/Deck UI Side Menu Fly In.mp3",
+    windowsBackground: "./Assets/Sfx/Win10/Windows Background.mp3",
+    windowsCancel: "./Assets/Sfx/Steam/Deck UI Side Menu Fly Out.mp3",
+    windowsUnlock: "./Assets/Sfx/Win10/Windows Unlock.mp3",
+    windowslogon: "./Assets/Sfx/Win10/Windows Logon.mp3",
+};
+const volumeSlider = document.getElementById("volume-slider");
+const volumeValue = document.getElementById("volume-value");
+
+function adjustVolume(delta) {
+    const previousVolume = uiVolume;
+
+    setUiVolume(uiVolume + delta);
+
+    if (uiVolume !== previousVolume) {
+        playSound("volume");
+    }
+}
+function toggleMute() {
+    if (uiVolume > 0) {
+        lastUnmutedVolume = uiVolume;
+        localStorage.setItem(
+            "shellChooserUnmutedVolume",
+            lastUnmutedVolume
+        );
+        playSound("volume");
+        setUiVolume(0);
+    } else {
+        setUiVolume(lastUnmutedVolume);
+        playSound("volume");
+    }
+}
+let volumeRepeatInterval = null;
+let volumeRepeatDirection = null;
+
+function startVolumeRepeat(direction) {
+    if (volumeRepeatDirection === direction) return;
+
+    stopVolumeRepeat();
+
+    volumeRepeatDirection = direction;
+
+    const delta = direction === "left" ? -0.05 : 0.05;
+
+    // Adjust immediately.
+    adjustVolume(delta);
+
+    // Repeat every 250 ms while held.
+    volumeRepeatInterval = setInterval(() => {
+        adjustVolume(delta);
+    }, 250);
+}
+
+function stopVolumeRepeat() {
+    clearInterval(volumeRepeatInterval);
+    volumeRepeatInterval = null;
+    volumeRepeatDirection = null;
+}
+const savedVolume = localStorage.getItem("shellChooserVolume");
+const savedUnmutedVolume = localStorage.getItem("shellChooserUnmutedVolume");
+
+let uiVolume = savedVolume === null
+    ? 0.5
+    : Math.max(0, Math.min(1, Number(savedVolume)));
+
+if (!Number.isFinite(uiVolume)) uiVolume = 0.5;
+
+let lastUnmutedVolume = savedUnmutedVolume === null
+    ? (uiVolume > 0 ? uiVolume : 0.5)
+    : Math.max(0.05, Math.min(1, Number(savedUnmutedVolume)));
+
+if (!Number.isFinite(lastUnmutedVolume)) {
+    lastUnmutedVolume = 0.5;
+}
+
+const sounds = {};
+
+for (const [name, path] of Object.entries(soundFiles)) {
+    sounds[name] = new Audio(path);
+    sounds[name].preload = "auto";
+}
+
+function setUiVolume(value) {
+    uiVolume = Math.max(0, Math.min(1, value));
+    if (uiVolume > 0) {
+        lastUnmutedVolume = uiVolume;
+        localStorage.setItem(
+            "shellChooserUnmutedVolume",
+            lastUnmutedVolume
+        );
+    }
+
+    Object.values(sounds).forEach(sound => {
+        sound.volume = uiVolume;
+    });
+
+    volumeSlider.value = Math.round(uiVolume * 100);
+    volumeValue.textContent = `${Math.round(uiVolume * 100)}%`;
+
+    localStorage.setItem("shellChooserVolume", uiVolume);
+}
+volumeSlider.addEventListener("input", () => {
+    const newVolume = Number(volumeSlider.value) / 100;
+    setUiVolume(newVolume);
+});
+volumeSlider.addEventListener("change", () => {
+    playSound("volume");
+});
+setUiVolume(uiVolume);
+let stopsound = false
+function playSound(name, skip = 0) {
+    if (stopsound) return;
+    const audio = new Audio(soundFiles[name]);
+    audio.volume = uiVolume;
+    audio.currentTime = skip;
+
+    audio.play().catch(() => {});
+}
+  const tiles = Array.from(document.querySelectorAll(".tile"));
+  const stage = document.getElementById("stage");
+  const frame = document.getElementById("frame");
+  const topbar = document.getElementById("topbar");
+  const hint = document.getElementById("hint");
+  const controllerLabel = document.getElementById("controller-label");
+  const hintText = document.getElementById("hint-text");
+  frame.classList.add("intro");
+    frame.addEventListener("animationend", () => {
+    frame.classList.remove("intro");
+    });
+
+  // Play navigation sound when hovering over boot tiles
+  tiles.forEach((tile, index) => {
+      tile.addEventListener("mouseenter", () => {
+          if (locked || confirming) return;
+          if (document.body.classList.contains("input-mode-keys")) return;
+  
+          selectedIndex = index;
+          renderSelection();
+          playSound("navigation");
+      });
+  });
+
+  let selectedIndex = 0;
+  let focusZone = "tiles";
+  let locked = false;
+  let confirming = false;
+  let pendingTile = null;
+  let pendingChoice = null;
+  
+  let mousemoven = false;
+
+  // ---------- selection state ----------
+
+  function enterKeysMode() {
+    document.body.classList.add("input-mode-keys");
+	document.body.classList.add("cursor-hidden");
+	mousemoven = false;
+	showInputHint();
+    if (confirming) return;
+    renderSelection();
+  }
+
+  function renderSelection() {
+      if (confirming) return;
+
+      tiles.forEach((t, n) => {
+          t.classList.toggle(
+              "selected",
+              focusZone === "tiles" && n === selectedIndex
+          );
+      });
+  }
+
+  function moveSelection(delta) {
+    if (locked || confirming) return;
+
+    selectedIndex = (selectedIndex + delta + tiles.length) % tiles.length;
+    playSound("navigation");
+    enterKeysMode();
+  }
+
+  function confirmSelection() {
+    if (locked) return;
+
+    if (confirming) {
+      launchSelection();
+      return;
+    }
+
+    choose(tiles[selectedIndex]);
+  }
+  function focusTile(index = selectedIndex) {
+      if (locked || confirming) return;
+  
+      closeMenu();
+
+      focusZone = "tiles";
+      selectedIndex = (index + tiles.length) % tiles.length;
+
+      enterKeysMode();
+      renderSelection();
+
+      tiles[selectedIndex].focus({ preventScroll: true });
+  }
+
+  function focusStatus() {
+      if (locked || confirming) return;
+
+      focusZone = "status";
+
+      enterKeysMode();
+      renderSelection();
+
+      menuButton.focus({ preventScroll: true });
+  }
+
+  function moveMenuOption(delta) {
+      enterKeysMode();
+  
+      const options = getDropdownOptions();
+  
+      if (!options.length) return;
+  
+      const currentElement = document.activeElement;
+  
+      let current = options.indexOf(currentElement);
+  
+      // Treat all cursor choices as one vertical navigation position.
+      if (currentElement.classList.contains("cursor-choice")) {
+          current = options.indexOf(cursorChoices[0]);
+      }
+  
+      if (current === -1) current = 0;
+  
+      const next = (current + delta + options.length) % options.length;
+  
+      options[next].focus();
+  }
+  function movePowerOption(delta) {
+      enterKeysMode();
+
+      const options = getDropdownOptions();
+
+      const current = options.indexOf(document.activeElement);
+      const next = (current + delta + options.length) % options.length;
+
+      options[next].focus();
+  }
+  // ---------- choose / confirmation ----------
+
+  function choose(tile) {
+    if (locked || confirming) return;
+	
+    confirming = true;
+    pendingTile = tile;
+    pendingChoice = tile.getAttribute("data-choice");
+    const steamWrapper = document.querySelector(".steam-tile-wrapper");
+    const steamDesktopOption = document.querySelector(".steam-desktop-option");
+    
+    if (pendingChoice === "steam" && steamDesktopConsoleAvailable) {
+    steamWrapper.classList.add("option-visible");
+    }
+    if (pendingChoice === "steam") {
+        playSound("steamSelect");
+    } else if (pendingChoice === "explorer") {
+        playSound("windowsSelect");
+       // playSound("windowsBackground");
+        playSound("windowsUnlock", 0.2);
+
+    }
+
+    const other = tiles.find(t => t !== tile);
+
+    const tileRect = tile.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+
+    const deltaX =
+      (stageRect.left + stageRect.width / 2) -
+      (tileRect.left + tileRect.width / 2);
+
+    // Stop mouse selection visuals
+    document.body.classList.add("input-mode-keys");
+
+    // Hide the other option
+    other.classList.add("dismissed");
+
+    // Move selected option to center
+    tile.classList.add("chosen", "selected");
+
+    tile.getBoundingClientRect(); // force reflow
+
+    tile.style.transform =
+      `translateX(${deltaX}px) translateY(-4px) scale(1.08)`;
+	 
+	 
+
+    // Change controls to confirmation controls
+    showInputHint();
+  }
+   // ---------- mouse ----------
+     tiles.forEach((tile) => {
+       tile.addEventListener("click", () => {
+         if (locked) {e.preventDefault(); return;}
+         if (confirming) {
+           if (tile === pendingTile) {
+             launchSelection();
+           } else {
+             cancelSelection();
+           }
+         } else {
+           choose(tile);
+         }
+       });
+     });
+
+     document.addEventListener("click", (e) => {
+       if (!confirming || locked) return;
+       if (pendingTile && pendingTile.contains(e.target)) return;
+       if (hint.contains(e.target)) return;
+       cancelSelection();
+     });
+     let cursorTimer;
+     function resetCursorTimer() {
+         if (locked) return;
+         mousemoven = true;
+     
+         document.body.classList.remove("cursor-hidden");
+         document.body.classList.remove("input-mode-keys");
+         
+         tiles.forEach(tile => {
+             if (confirming || locked) return;
+             tile.classList.remove("selected");
+             tile.blur();
+         });
+     
+         showMouseHint();
+         clearTimeout(cursorTimer);
+     
+         cursorTimer = setTimeout(() => {
+             mousemoven = false;
+             document.body.classList.add("cursor-hidden");
+             document.body.classList.add("input-mode-keys");
+     
+             renderSelection();
+             showInputHint();
+         }, 2000);
+     }
+
+     document.addEventListener("mousemove", resetCursorTimer);
+     document.addEventListener("mousedown", resetCursorTimer);
+
+     resetCursorTimer();
+// Showhint
+  function showInputHint() {
+  	if (gpConnected) {
+	  showGamepadHint(currentGamepadName);
+    } else if (mousemoven) {
+      showMouseHint();
+	}  else {
+      showKeyboardHint();
+	}
+  }
+  function launchSelection() {
+    if (!confirming || locked) return;
+
+    locked = true;
+    document.body.classList.add("ui-locked");
+    if (pendingChoice === "steam") {
+        playSound("steamLaunch");
+    } else if (pendingChoice === "explorer") {
+        playSound("steamLaunch");
+        playSound("windowslogon", 1.2);
+    }
+    // Fade everything away
+    topbar.style.opacity = 0;
+    hint.style.opacity = 0;
+
+    frame.classList.add("exiting");
+
+    // Give the fade animation time to finish,
+    setTimeout(async () => {
+        try {
+            stopsound = true
+            if (window.pywebview && window.pywebview.api) {
+                await window.pywebview.api.choose(
+                    pendingChoice,
+                    steamDesktopConsoleAvailable && steamDesktopConsoleEnabled
+                );
+            } else {
+                console.error("pywebview API unavailable");
+                locked = false;
+            }
+        } catch (err) {
+            console.error("Launch failed:", err);
+            locked = false;
+        }
+    }, 1200);
+  }
+
+  function cancelSelection() {
+    if (!confirming || locked) return;
+    if (pendingChoice === "steam") {
+        playSound("steamCancel");
+    } else if (pendingChoice === "explorer") {
+        playSound("windowsCancel");
+        playSound("windowsBackground", 0.3);
+       // playSound("chimes", 0.25);
+    }
+
+    confirming = false;
+    pendingTile = null;
+    pendingChoice = null;
+    document.querySelector(".steam-tile-wrapper")
+    .classList.remove("option-visible");
+  // Restore ALL tiles completely
+    tiles.forEach((tile) => {
+    tile.classList.remove("dismissed", "chosen", "selected");
+    tile.style.transform = "";
+    tile.style.opacity = "";
+  });
+
+    // Restore the normal UI
+    topbar.style.opacity = 1;
+    hint.style.opacity = 1;
+
+    // Return to normal mouse mode
+    document.body.classList.remove("input-mode-keys");
+
+    // Make sure the current selection is valid again
+    if (selectedIndex < 0 || selectedIndex >= tiles.length) {
+      selectedIndex = 0;
+    }
+
+    // Restore the correct hint
+    showInputHint();
+  }
+
+  // ---------- keyboard ----------
+  const BINDS = {
+      left:  ["ArrowLeft", "a"],
+      right: ["ArrowRight", "d"],
+      up:    ["ArrowUp", "w"],
+      down:  ["ArrowDown", "s"],
+
+      confirm: ["Enter", "ArrowUp", "z", "y", "w", "e"],
+      cancel:  ["Escape", "Backspace", "ArrowDown", "x", "n", "s", "q"],
+
+      activate: ["Enter", "z", "y", "e"],
+      back:     ["a", "q", "x", "n", "Escape", "Backspace"]
+  };
+  function getActiveDropdown() {
+      if (menuContainer.classList.contains("open")) return menuDropdown;
+      if (powerContainer.classList.contains("open")) return powerDropdown;
+      return null;
+  }
+  
+  function getDropdownOptions() {
+      const dropdown = getActiveDropdown();
+      if (!dropdown) return [];
+  
+      if (dropdown === menuDropdown) {
+          return Array.from(dropdown.querySelectorAll(
+              ".menu-option, .settings-tab-button, .volume-slider, .toggle-switch input, .cursor-choice"
+          )).filter(option => {
+              // Ignore controls inside the collapsed power settings panel.
+              if (
+                  option.closest(".power-settings-panel") &&
+                  !powerSettingsPanel.classList.contains("open")
+              ) {
+                  return false;
+              }
+  
+              // Keep the existing cursor visibility behaviour.
+              if (option.classList.contains("cursor-choice")) {
+                  return !legacyCursorEnabled && option === cursorChoices[0];
+              }
+  
+              return true;
+          });
+      }
+  
+      return Array.from(dropdown.querySelectorAll(".power-option"));
+  }
+  function isBind(bind, key) {
+      return BINDS[bind].includes(key);
+  }
+
+  document.addEventListener("keydown", (e) => {
+      if (locked) {e.preventDefault(); return;}
+
+      enterKeysMode();
+      // Hold power actions with keyboard
+      if (
+          isPowerHoldButton(document.activeElement) &&
+          isBind("activate", e.key)
+      ) {
+          e.preventDefault();
+      
+          if (!e.repeat) {
+              beginPowerHold(document.activeElement);
+          }
+      
+          return;
+      }
+      // Power confirmation navigation
+      if (powerConfirmOpen) {
+          if (isBind("left", e.key) || isBind("right", e.key)) {
+              e.preventDefault();
+      
+              if (document.activeElement === powerConfirmYes) {
+                  powerConfirmNo.focus();
+              } else {
+                  powerConfirmYes.focus();
+              }
+          } else if (isBind("activate", e.key)) {
+              e.preventDefault();
+              document.activeElement.click();
+          } else if (isBind("cancel", e.key)) {
+              e.preventDefault();
+              closePowerConfirm();
+          }
+      
+          return;
+      }
+      if (
+        confirming &&
+        pendingChoice === "steam" &&
+        steamDesktopConsoleAvailable
+      ) {
+          const toggleFocused = document.activeElement === steamDesktopToggle;
+      
+          if (toggleFocused) {
+              if (isBind("activate", e.key)) {
+                  e.preventDefault();
+                  steamDesktopToggle.click();
+              } else if (isBind("up", e.key)) {
+                  e.preventDefault();
+                  pendingTile.focus();
+              } else if (isBind("cancel", e.key)) {
+                  e.preventDefault();
+                  cancelSelection();
+              }
+      
+              return;
+          }
+      
+          if (isBind("down", e.key)) {
+              e.preventDefault();
+              steamDesktopToggle.focus();
+              return;
+          }
+      }
+      if (confirming) {
+          if (isBind("confirm", e.key)) {
+              e.preventDefault();
+              launchSelection();
+          } else if (isBind("cancel", e.key)) {
+              e.preventDefault();
+              cancelSelection();
+          }
+
+          return;
+      }
+      // Cursor style horizontal navigation
+      if (
+          menuContainer.classList.contains("open") &&
+          document.activeElement.classList.contains("cursor-choice")
+      ) {
+          if (isBind("left", e.key) || isBind("right", e.key)) {
+              e.preventDefault();
+      
+              const cursors = Array.from(cursorChoices);
+              const current = cursors.indexOf(document.activeElement);
+              const delta = isBind("left", e.key) ? -1 : 1;
+      
+              cursors[
+                  (current + delta + cursors.length) % cursors.length
+              ].focus();
+      
+              return;
+          }
+      }
+      // Dropdown navigation
+      const activeDropdown = getActiveDropdown();
+
+      if (activeDropdown) {
+         const options = getDropdownOptions();
+        
+          const current = options.indexOf(document.activeElement);
+          if (document.activeElement === volumeSlider) {
+            if (isBind("left", e.key)) {
+                e.preventDefault();
+                startVolumeRepeat("left");
+            } else if (isBind("right", e.key)) {
+                e.preventDefault();
+                startVolumeRepeat("right"); 
+            } else if (isBind("activate", e.key)) {
+                e.preventDefault();
+                toggleMute();
+            } else if (isBind("up", e.key) || isBind("down", e.key)) {
+                  e.preventDefault();
+                  stopVolumeRepeat();
+                  const current = options.indexOf(volumeSlider);
+                  const next = isBind("up", e.key) ? current - 1 : current + 1;
+          
+                  options[(next + options.length) % options.length].focus();
+              }
+          
+              return;
+          }
+          if (isBind("down", e.key)) {
+              e.preventDefault();
+              options[(current + 1) % options.length].focus();
+          } else if (isBind("up", e.key)) {
+              e.preventDefault();
+              options[(current - 1 + options.length) % options.length].focus();
+            } else if (
+                activeDropdown === powerDropdown &&
+                isBind("right", e.key)
+            ) {
+                e.preventDefault();
+                closePowerMenu();
+                menuButton.focus();
+
+            } else if (
+                activeDropdown === menuDropdown &&
+                isBind("left", e.key)
+            ) {
+                e.preventDefault();
+                closeMenu();
+                powerButton.focus();
+            
+            } else if (isBind("activate", e.key)) {
+                e.preventDefault();
+                document.activeElement.click();
+            
+            } else if (isBind("back", e.key)) {
+                e.preventDefault();
+            
+                if (activeDropdown === menuDropdown) {
+                    closeMenu();
+                    menuButton.focus();
+                } else {
+                    closePowerMenu();
+                    powerButton.focus();
+                }
+            }
+            
+          return;
+      }
+
+      // Status bar navigation
+      if (focusZone === "status") {
+          if (isBind("up", e.key)) {
+              e.preventDefault();
+              focusTile();
+          } else if (isBind("left", e.key)) {
+              e.preventDefault();
+
+              if (document.activeElement === menuButton) {
+                  powerButton.focus();
+              } else {
+                  focusTile();
+              }
+          } else if (isBind("right", e.key)) {
+              e.preventDefault();
+
+              if (document.activeElement === powerButton) {
+                  menuButton.focus();
+              } else {
+                  menuButton.focus();
+              }
+          } else if (isBind("down", e.key)) {
+              e.preventDefault();
+
+              if (document.activeElement === powerButton) {
+                  powerButton.click();
+              } else {
+                  menuButton.click();
+              }
+          }
+
+          return;
+      }
+
+      // Boot tile navigation
+      if (isBind("left", e.key)) {
+          e.preventDefault();
+          moveSelection(-1);
+          tiles[selectedIndex].focus();
+      } else if (isBind("right", e.key)) {
+          e.preventDefault();
+          moveSelection(1);
+          tiles[selectedIndex].focus();
+      } else if (isBind("down", e.key)) {
+          e.preventDefault();
+          focusStatus();
+      } else if (isBind("confirm", e.key)) {
+          e.preventDefault();
+          confirmSelection();
+      }
+  });
+
+  // ---------- gamepad support ----------
+
+  const GP_DEADZONE = 0.5;
+  let gpPrevUp = false;
+  let gpPrevDown = false;
+  let gpPrevLeft = false;
+  let gpPrevRight = false;
+  let gpPrevConfirm = false;
+  let gpPrevCancel = false;
+  let gpPrevStart = false;
+  
+  let gpConnected = false;
+  let currentGamepadName = "";
+
+  function showMouseHint() {
+    if (confirming) {
+      hintText.innerHTML =
+	   '<kbd style="color: white">🖱 Left Click</kbd> <span style="color: limegreen;">on selection</span> to confirm <span style="color: red;">or outside</span> to cancel'
+    } else {
+      hintText.innerHTML =
+        '<kbd style="color: white">🖱 Move</kbd> select &nbsp; ' +
+        '<kbd style="color: white">🖱 Left Click</kbd> launch';
+    }
+  }
+  
+  function showKeyboardHint() {
+    if (confirming) {
+      hintText.innerHTML =
+	   '<kbd style="color: limegreen;">↑</kbd> confirm &nbsp; ' +
+       '<kbd style="color: red;">↓</kbd> cancel'
+    } else {
+      hintText.innerHTML =
+        '<kbd style="color: white">&larr;</kbd><kbd style="color: white">&rarr;</kbd> select &nbsp; ' +
+        '<kbd style="color: white">↑</kbd> launch';
+    }
+  }
+
+  function showGamepadHint(name) {
+    currentGamepadName = name || "Unknown Controller";
+
+    controllerLabel.textContent =
+      currentGamepadName.toUpperCase();
+    if (confirming) {
+		hintText.innerHTML =
+		    '<span style="color: limegreen">Ⓐ</span> confirm &nbsp; ' +
+			'<span style="color: red">Ⓑ</span> cancel';
+	} else {
+        hintText.innerHTML =
+          '<span style="color: white; font-size: 20px; vertical-align: -2px;">✚</span> select &nbsp; ' +
+          '<span style="color: limegreen">Ⓐ</span> launch';
+	}
+  }
+
+  function setGamepadConnected(name) {
+    if (gpConnected) {
+      currentGamepadName = name || currentGamepadName;
+      controllerLabel.textContent =
+        currentGamepadName.toUpperCase();
+      return;
+    }
+
+    gpConnected = true
+    currentGamepadName = name || "Unknown Controller";
+
+    showGamepadHint(currentGamepadName);
+  }
+
+  function setGamepadDisconnected() {
+    gpConnected = false;
+    currentGamepadName = "";
+	controllerLabel.textContent = "";
+    if (!confirming) {
+      showInputHint();
+    }
+  }
+
+  window.addEventListener("gamepadconnected", (e) => {
+    setGamepadConnected(
+      e.gamepad && e.gamepad.id
+    );
+  });
+
+  window.addEventListener("gamepaddisconnected", () => {
+    setGamepadDisconnected();
+  });
+
+
+function pollGamepad() {
+      const pads = navigator.getGamepads
+          ? navigator.getGamepads()
+          : [];
+
+      // Find the first connected controller, regardless of slot.
+      const gp = pads
+          ? Array.from(pads).find(pad => pad && pad.connected)
+          : null;
+          if (locked) {
+              requestAnimationFrame(pollGamepad);
+              return;
+          }
+
+      if (gp) {
+          if (!gpConnected) {
+              setGamepadConnected(gp.id);
+          }
+          const axisX = gp.axes[0] || 0;
+          const axisY = gp.axes[1] || 0;
+
+          const left =
+              axisX < -GP_DEADZONE ||
+              (gp.buttons[14] && gp.buttons[14].pressed);
+
+          const right =
+              axisX > GP_DEADZONE ||
+              (gp.buttons[15] && gp.buttons[15].pressed);
+
+          const up =
+              axisY < -GP_DEADZONE ||
+              (gp.buttons[12] && gp.buttons[12].pressed);
+
+          const down =
+              axisY > GP_DEADZONE ||
+              (gp.buttons[13] && gp.buttons[13].pressed);
+
+          const confirm = gp.buttons[0] && gp.buttons[0].pressed;
+          const cancel = gp.buttons[1] && gp.buttons[1].pressed;
+          const start = gp.buttons[9] && gp.buttons[9].pressed;
+
+         // A / Cross
+         const holdTarget = document.activeElement;
+         
+         if (holdPowerEnabled && isPowerHoldButton(holdTarget)) {
+             if (confirm && !gpPrevConfirm) {
+                 beginPowerHold(holdTarget);
+             }
+         
+             if (!confirm && gpPrevConfirm) {
+                 endPowerHold(holdTarget);
+             }
+            } else if (confirm && !gpPrevConfirm) {
+                if (confirming && document.activeElement === steamDesktopToggle) {
+                    steamDesktopToggle.click();
+                } else if (focusZone === "status") {
+                if (document.activeElement === volumeSlider) {
+                    toggleMute();
+                } else {
+                    document.activeElement.click();
+                }
+             } else {
+                 confirmSelection();
+             }
+         }
+
+          // Start button
+        if (start && !gpPrevStart &&
+            (menuContainer.classList.contains("open") ||
+             powerContainer.classList.contains("open"))) {
+            document.activeElement.click();
+        }
+        
+        // B / Circle
+        if (cancel && !gpPrevCancel) {
+            if (powerConfirmOpen) {
+                closePowerConfirm();
+            } else if (menuContainer.classList.contains("open")) {
+                closeMenu();
+                menuButton.focus();
+            } else if (confirming) {
+                cancelSelection();
+            } else if (focusZone === "status") {
+                focusTile();
+            }
+        }
+        if (
+            confirming &&
+            pendingChoice === "steam" &&
+            steamDesktopConsoleAvailable
+        ) {
+            if (down && !gpPrevDown && document.activeElement !== steamDesktopToggle) {
+                steamDesktopToggle.focus();
+            } else if (up && !gpPrevUp && document.activeElement === steamDesktopToggle) {
+                pendingTile.focus();
+            }
+        }
+        if (!confirming) {
+            const menuOpen = menuContainer.classList.contains("open");
+            const powerOpen = powerContainer.classList.contains("open");
+        
+            if (powerConfirmOpen) {
+                if ((left && !gpPrevLeft) || (right && !gpPrevRight)) {
+                    if (document.activeElement === powerConfirmYes) {
+                        powerConfirmNo.focus();
+                    } else {
+                        powerConfirmYes.focus();
+                    }
+                }
+            } else if (menuOpen || powerOpen) {
+                if (menuOpen && document.activeElement === volumeSlider) {
+                    if (left && !right) {
+                        startVolumeRepeat("left");
+                    } else if (right && !left) {
+                        startVolumeRepeat("right");
+                    } else {
+                        stopVolumeRepeat();
+                    }
+                } else {
+                    stopVolumeRepeat();
+                }
+                // Left / Right navigation
+                if (
+                    menuOpen &&
+                    document.activeElement.classList.contains("cursor-choice")
+                ) {
+                    if (left && !gpPrevLeft) {
+                        const cursors = Array.from(cursorChoices);
+                        const current = cursors.indexOf(document.activeElement);
+                
+                        cursors[
+                            (current - 1 + cursors.length) % cursors.length
+                        ].focus();
+                    }
+                
+                    if (right && !gpPrevRight) {
+                        const cursors = Array.from(cursorChoices);
+                        const current = cursors.indexOf(document.activeElement);
+                
+                        cursors[(current + 1) % cursors.length].focus();
+                    }
+                } else if (
+                    left && !gpPrevLeft &&
+                    menuOpen &&
+                    document.activeElement !== volumeSlider
+                ) {
+                    closeMenu();
+                    powerButton.focus();
+                }
+                
+                // Right: power dropdown -> menu button
+                if (right && !gpPrevRight && powerOpen) {
+                    closePowerMenu();
+                    menuButton.focus();
+                }
+        
+                if (up && !gpPrevUp) {
+                    if (menuOpen) moveMenuOption(-1);
+                    else movePowerOption(-1);
+                }
+        
+                if (down && !gpPrevDown) {
+                    if (menuOpen) moveMenuOption(1);
+                    else movePowerOption(1);
+                }
+            } else if (focusZone === "status") {
+                if (left && !gpPrevLeft) {
+                    if (document.activeElement === menuButton) {
+                        powerButton.focus();
+                    } else {
+                        focusTile();
+                    }
+                }
+        
+                if (right && !gpPrevRight) {
+                    if (document.activeElement === powerButton) {
+                        menuButton.focus();
+                    } else {
+                        menuButton.focus();
+                    }
+                }
+        
+                if (down && !gpPrevDown) {
+                    if (document.activeElement === powerButton) {
+                        powerButton.click();
+                    } else {
+                        menuButton.click();
+                    }
+                }
+        
+                if (up && !gpPrevUp) {
+                    focusTile();
+                }
+            } else {
+                if (left && !gpPrevLeft) {
+                    moveSelection(-1);
+                    tiles[selectedIndex].focus();
+                }
+        
+                if (right && !gpPrevRight) {
+                    moveSelection(1);
+                    tiles[selectedIndex].focus();
+                }
+        
+                if (down && !gpPrevDown) {
+                    focusStatus();
+                }
+            }
+        }
+
+        gpPrevLeft = left;
+        gpPrevRight = right;
+        gpPrevUp = up;
+        gpPrevDown = down;
+        gpPrevConfirm = confirm;
+        gpPrevCancel = cancel;
+        gpPrevStart = start;
+
+    } else {
+        if (gpConnected) {
+            setGamepadDisconnected();
+        }
+
+        // Reset button states after disconnecting.
+        gpPrevLeft = false;
+        gpPrevRight = false;
+        gpPrevUp = false;
+        gpPrevDown = false;
+        gpPrevConfirm = false;
+        gpPrevCancel = false;
+        gpPrevStart = false;
+    }
+	requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+  
+
+const batteryPercent = document.getElementById("battery-percent");
+const batteryFill = document.getElementById("battery-fill");
+const batteryIndicator = document.getElementById("battery-indicator");
+
+async function initBattery() {
+    try {
+        // Ask Python whether this device has a battery
+        const available = await window.pywebview.api.has_battery();
+
+        // No battery detected: hide the entire indicator
+        if (!available) {
+            batteryIndicator.style.display = "none";
+            return;
+        }
+
+        // Python detected a battery, but the browser API is unavailable
+        if (!navigator.getBattery) {
+            batteryIndicator.style.display = "none";
+            return;
+        }
+
+        // Retrieve battery information
+        const battery = await navigator.getBattery();
+
+        function updateBattery() {
+            const percent = Math.round(battery.level * 100);
+
+            batteryPercent.textContent = percent + "%";
+            batteryFill.style.width = percent + "%";
+
+            batteryIndicator.classList.toggle(
+                "charging",
+                battery.charging
+            );
+        }
+
+        updateBattery();
+
+        battery.addEventListener("levelchange", updateBattery);
+        battery.addEventListener("chargingchange", updateBattery);
+
+    } catch (err) {
+        batteryIndicator.style.display = "none";
+        console.error("Battery detection failed:", err);
+    }
+}
+
+// Wait until pywebview exposes its Python API
+window.addEventListener("pywebviewready", initBattery);
+
+// ---------- Windows system clock ----------
+
+const clock = document.getElementById("clock");
+
+function updateClock() {
+    const now = new Date();
+
+    clock.textContent = now.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+    });
+}
+
+updateClock();
+setInterval(updateClock, 1000);
+
+// ---------- Status menu ----------
+
+const menuContainer = document.querySelector(".menu-container");
+const menuButton = document.getElementById("menu-button");
+const menuDropdown = document.getElementById("menu-dropdown");
+const powerSettingsButton = document.getElementById("power-settings-button");
+const powerSettingsPanel = document.getElementById("power-settings-panel");
+
+powerSettingsButton.addEventListener("click", () => {
+    const isOpen = powerSettingsPanel.classList.toggle("open");
+
+    powerSettingsButton.setAttribute("aria-expanded", isOpen);
+    playSound(isOpen ? "toggleon" : "toggleoff");
+    if (isOpen) {
+        powerConfirmToggle.focus();
+    } else {
+        powerSettingsButton.focus();
+    }
+});
+function closeMenu() {
+    menuContainer.classList.remove("open");
+    menuButton.setAttribute("aria-expanded", "false");
+}
+
+function openMenu() {
+    menuContainer.classList.add("open");
+    menuButton.setAttribute("aria-expanded", "true");
+
+    menuDropdown.querySelector(".menu-option").focus();
+}
+
+menuButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+
+    if (menuContainer.classList.contains("open")) {
+        closeMenu();
+    } else {
+        openMenu();
+    }
+});
+// ---------- Power confirmation ----------
+
+const powerConfirm = document.getElementById("power-confirm");
+const powerConfirmMessage = document.getElementById("power-confirm-message");
+const powerConfirmYes = document.getElementById("power-confirm-yes");
+const powerConfirmNo = document.getElementById("power-confirm-no");
+[powerConfirmYes, powerConfirmNo].forEach(button => {
+    button.addEventListener("focus", () => {
+        powerConfirmYes.classList.remove("selected");
+        powerConfirmNo.classList.remove("selected");
+
+        button.classList.add("selected");
+    });
+});
+
+let powerConfirmOpen = false;
+let pendingPowerAction = null;
+// ---------- Power confirmation setting ----------
+
+const powerConfirmToggle = document.getElementById("power-confirm-toggle");
+
+let confirmPowerEnabled =
+    localStorage.getItem("shellChooserConfirmPower") === "true";
+
+powerConfirmToggle.checked = confirmPowerEnabled;
+
+powerConfirmToggle.addEventListener("change", () => {
+    confirmPowerEnabled = powerConfirmToggle.checked;
+
+    localStorage.setItem(
+        "shellChooserConfirmPower",
+        confirmPowerEnabled
+    );
+    playSound(confirmPowerEnabled ? "toggleon" : "toggleoff");
+});
+// ---------- Hold-to-confirm setting ----------
+
+const holdPowerToggle = document.getElementById("hold-power-toggle");
+
+let holdPowerEnabled =
+    localStorage.getItem("shellChooserHoldPower") !== "false";
+
+holdPowerToggle.checked = holdPowerEnabled;
+
+holdPowerToggle.addEventListener("change", () => {
+    holdPowerEnabled = holdPowerToggle.checked;
+
+    localStorage.setItem(
+        "shellChooserHoldPower",
+        holdPowerEnabled
+    );
+
+    playSound(holdPowerEnabled ? "toggleon" : "toggleoff");
+});
+// ---------- Legacy cursor setting ----------
+
+const legacyCursorToggle = document.getElementById("legacy-cursor-toggle");
+
+let legacyCursorEnabled =
+    localStorage.getItem("shellChooserLegacyCursor") === "true";
+
+legacyCursorToggle.checked = legacyCursorEnabled;
+
+document.body.classList.toggle(
+    "legacy-cursor",
+    legacyCursorEnabled
+);
+
+legacyCursorToggle.addEventListener("change", () => {
+    legacyCursorEnabled = legacyCursorToggle.checked;
+
+    localStorage.setItem(
+        "shellChooserLegacyCursor",
+        legacyCursorEnabled
+    );
+
+    document.body.classList.toggle(
+        "legacy-cursor",
+        legacyCursorEnabled
+    );
+
+    // Move focus away if the cursor selector is currently focused.
+    if (
+        legacyCursorEnabled &&
+        document.activeElement.classList.contains("cursor-choice")
+    ) {
+        volumeSlider.focus();
+    }
+
+    playSound(legacyCursorEnabled ? "toggleon" : "toggleoff");
+});
+
+
+// ---------- Cursor style selector ----------
+
+const cursorChoices = document.querySelectorAll(".cursor-choice");
+
+let cursorStyle = localStorage.getItem("shellChooserCursorStyle") || "triangle";
+
+function setCursorStyle(style) {
+    cursorStyle = style;
+
+    document.body.dataset.cursorStyle = style;
+
+    cursorChoices.forEach(choice => {
+        choice.classList.toggle(
+            "selected",
+            choice.dataset.cursor === style
+        );
+    });
+
+    localStorage.setItem("shellChooserCursorStyle", style);
+}
+
+cursorChoices.forEach(choice => {
+    choice.addEventListener("click", () => {
+        setCursorStyle(choice.dataset.cursor);
+        playSound("toggleon");
+    });
+});
+
+// Restore saved cursor style
+setCursorStyle(cursorStyle);
+
+// ---------- Steam desktop mode + console setting ----------
+
+const steamDesktopToggle = document.getElementById("steam-desktop-toggle");
+const steamDesktopOption = document.querySelector(".steam-desktop-option");
+const steamTileWrapper = document.querySelector(".steam-tile-wrapper");
+
+let steamDesktopConsoleAvailable = false;
+let steamDesktopConsoleEnabled = false;
+
+async function initSteamDesktopConsole() {
+    try {
+        steamDesktopConsoleAvailable =
+            await window.pywebview.api.steam_desktop_console_available();
+
+        if (!steamDesktopConsoleAvailable) {
+            steamDesktopToggle.checked = false;
+            steamDesktopConsoleEnabled = false;
+
+            localStorage.setItem(
+                "shellChooserDesktopSteamConsole",
+                "false"
+            );
+
+            return;
+        }
+
+        steamTileWrapper.classList.add("console-option-enabled");
+
+        steamDesktopConsoleEnabled =
+            localStorage.getItem("shellChooserDesktopSteamConsole") === "true";
+
+        steamDesktopToggle.checked = steamDesktopConsoleEnabled;
+
+    } catch (err) {
+        console.error("Steam desktop console setting failed:", err);
+    }
+}
+
+window.addEventListener("pywebviewready", initSteamDesktopConsole);
+
+steamDesktopToggle.addEventListener("change", () => {
+    if (!steamDesktopConsoleAvailable) {
+        steamDesktopToggle.checked = false;
+        return;
+    }
+
+    steamDesktopConsoleEnabled = steamDesktopToggle.checked;
+
+    localStorage.setItem(
+        "shellChooserDesktopSteamConsole",
+        steamDesktopConsoleEnabled
+    );
+
+    playSound(
+        steamDesktopConsoleEnabled ? "toggleon" : "toggleoff"
+    );
+});
+
+steamDesktopOption.addEventListener("click", (e) => {
+    e.stopPropagation();
+});
+function openPowerConfirm(action) {
+    pendingPowerAction = action;
+    powerConfirmOpen = true;
+    powerConfirm.querySelector(".confirm-dialog").dataset.action = action;
+    const names = {
+        logoff: "log off",
+        restart: "restart",
+        shutdown: "shut down"
+    };
+    playSound("windowsSelect");
+    powerConfirmMessage.textContent =
+        `Are you sure you want to ${names[action]}?`;
+
+    closePowerMenu();
+
+    powerConfirm.classList.add("open");
+    powerConfirmNo.focus();
+}
+
+function closePowerConfirm() {
+    powerConfirmOpen = false;
+    pendingPowerAction = null;
+
+    powerConfirm.classList.remove("open");
+    powerButton.focus();
+}
+
+async function executePowerAction(action) {
+    powerConfirmOpen = false;
+    powerConfirm.classList.remove("open");
+
+    playSound("toast");
+    locked = true;
+    document.body.classList.add("ui-locked");
+
+    topbar.style.opacity = 0;
+    hint.style.opacity = 0;
+    frame.classList.add("exiting");
+
+    setTimeout(async () => {
+        try {
+            stopsound = true
+            if (window.pywebview && window.pywebview.api) {
+                await window.pywebview.api.power_action(action);
+            } else {
+                console.error("pywebview API unavailable");
+            }
+        } catch (err) {
+            console.error("Power action failed:", err);
+        }
+    }, 300);
+}
+
+powerConfirmYes.addEventListener("click", () => {
+    if (holdPowerEnabled) return;
+
+    if (pendingPowerAction) {
+        executePowerAction(pendingPowerAction);
+    }
+});
+
+powerConfirmNo.addEventListener("click", closePowerConfirm);
+
+
+/* 3 dot menu */
+menuDropdown.addEventListener("click", async (e) => {
+    e.stopPropagation();
+
+    const option = e.target.closest(".menu-option");
+    if (!option) return;
+
+    const action = option.dataset.action;
+    playSound("positive");
+
+    try {
+        if (window.pywebview && window.pywebview.api) {
+            await window.pywebview.api.launch_action(action);
+            closeMenu();
+            menuButton.focus();
+        } else {
+            console.error("pywebview API unavailable");
+        }
+    } catch (err) {
+        console.error("Action launch failed:", err);
+    }
+});
+
+// Keep custom selection state synchronized with Tab navigation.
+let lastFocusedElement = null;
+
+document.addEventListener("focusin", (e) => {
+    const tileIndex = tiles.indexOf(e.target);
+
+    const wasTile = tiles.includes(lastFocusedElement);
+    const isTile = tileIndex !== -1;
+
+    const wasStatus = lastFocusedElement &&
+        (menuContainer.contains(lastFocusedElement) ||
+         powerContainer.contains(lastFocusedElement));
+
+    const isStatus =
+        menuContainer.contains(e.target) ||
+        powerContainer.contains(e.target);
+
+    if ((wasTile && isStatus) || (wasStatus && isTile)) {
+        playSound("tab");
+    } else if (wasStatus && isStatus && lastFocusedElement !== e.target) {
+        playSound("misc");
+    }
+
+    lastFocusedElement = e.target;
+
+    if (isTile) {
+        focusZone = "tiles";
+        selectedIndex = tileIndex;
+        renderSelection();
+    } else if (isStatus) {
+        focusZone = "status";
+    }
+});
+
+document.addEventListener("click", (e) => {
+    if (!menuContainer.contains(e.target)) {
+        const menuWasOpen = menuContainer.classList.contains("open");
+
+        closeMenu();
+
+        if (menuWasOpen && !e.target.closest(".status-bar")) {
+            focusTile();
+        }
+    }
+});
+// ---------- Power menu ----------
+
+
+const powerContainer = document.querySelector(".power-container");
+const powerButton = document.getElementById("power-button");
+const powerDropdown = document.getElementById("power-dropdown");
+const powerButtonIcon = powerButton.querySelector(".power-icon");
+function playButtonGlow(button) {
+    button.classList.remove("clicked");
+
+    // Restart animation on repeated clicks.
+    void button.offsetWidth;
+
+    button.classList.add("clicked");
+
+    setTimeout(() => {
+        button.classList.remove("clicked");
+    }, 250);
+}
+
+document.querySelectorAll(
+    ".menu-option, .power-option, .confirm-button"
+).forEach(button => {
+    button.addEventListener("click", () => {
+        playButtonGlow(button);
+    });
+});
+// ---------- Hold-to-confirm logic ----------
+
+let powerHoldTimer = null;
+let powerHoldButton = null;
+let powerHoldSoundInterval = null;
+function startPowerHoldSound() {
+    stopPowerHoldSound();
+
+    playSound("shutdownhold");
+
+    powerHoldSoundInterval = setInterval(() => {
+        playSound("shutdownhold", 0.1);
+    }, 100);
+}
+
+function stopPowerHoldSound() {
+    clearInterval(powerHoldSoundInterval);
+    powerHoldSoundInterval = null;
+}
+
+function isPowerHoldButton(button) {
+    if (!holdPowerEnabled || !button) return false;
+
+    // Yes button in the confirmation dialog
+    if (button === powerConfirmYes) {
+        return powerConfirmOpen && !!pendingPowerAction;
+    }
+
+    // Power menu buttons, but only when prompts are disabled
+    return (
+        button.matches(".power-option") &&
+        !confirmPowerEnabled &&
+        powerContainer.classList.contains("open")
+    );
+}
+
+function beginPowerHold(button) {
+    if (!isPowerHoldButton(button) || powerHoldButton) return;
+
+    powerHoldButton = button;
+    button.classList.add("hold-active");
+
+    startPowerHoldSound();
+
+    powerHoldTimer = setTimeout(() => {
+        if (powerHoldButton !== button) return;
+
+        stopPowerHoldSound();
+
+        button.classList.remove("hold-active");
+        powerHoldButton = null;
+        powerHoldTimer = null;
+
+        if (button === powerConfirmYes) {
+            if (pendingPowerAction) {
+                executePowerAction(pendingPowerAction);
+            }
+        } else {
+            executePowerAction(button.dataset.power);
+        }
+    }, 650);
+}
+
+function endPowerHold(button) {
+    if (powerHoldButton !== button) return
+    
+    clearTimeout(powerHoldTimer);
+    powerHoldTimer = null;
+    stopPowerHoldSound();
+    powerHoldButton.classList.remove("hold-active");
+    powerHoldButton = null;
+}
+
+function cancelPowerHold() {
+    if (!powerHoldButton) return;
+    endPowerHold(powerHoldButton);
+}
+
+// Mouse / pointer input
+function bindPowerHold(button) {
+    button.addEventListener("pointerdown", () => {
+        beginPowerHold(button);
+    });
+
+    button.addEventListener("pointerleave", () => {
+        endPowerHold(button);
+    });
+
+    button.addEventListener("pointercancel", () => {
+        endPowerHold(button);
+    });
+}
+
+powerDropdown.querySelectorAll(".power-option").forEach(bindPowerHold);
+bindPowerHold(powerConfirmYes);
+
+document.addEventListener("pointerup", () => {
+    if (powerHoldButton) {
+        endPowerHold(powerHoldButton);
+    }
+});
+
+document.addEventListener("pointercancel", cancelPowerHold);
+
+const powerIcons = {
+    shutdown: "./Assets/Icons/Shutdown.svg",
+    restart: "./Assets/Icons/Restart.svg",
+    logoff: "./Assets/Icons/Logoff.svg"
+};
+
+function previewPowerAction(option) {
+    if (!option) return;
+
+    const action = option.dataset.power;
+    const icon = powerIcons[action];
+
+    if (icon) {
+        powerButtonIcon.src = icon;
+    }
+}
+function resetPowerIcon() {
+    powerButtonIcon.src = powerIcons.shutdown;
+}
+powerDropdown.addEventListener("click", (e) => {
+    e.stopPropagation();
+
+    if (locked || confirming) return;
+
+    const option = e.target.closest(".power-option");
+    if (!option) return;
+
+    const action = option.dataset.power;
+    if (holdPowerEnabled && !confirmPowerEnabled) return;
+    if (confirmPowerEnabled) {
+        openPowerConfirm(action);
+    } else {
+        executePowerAction(action);
+    }
+    });
+// Mouse hover preview
+powerDropdown.querySelectorAll(".power-option").forEach(option => {
+    option.addEventListener("mouseenter", () => {
+        previewPowerAction(option);
+    });
+
+    // Keyboard / gamepad focus preview
+    option.addEventListener("focus", () => {
+        previewPowerAction(option);
+    });
+});
+function closePowerMenu() {
+    powerContainer.classList.remove("open");
+    powerButton.setAttribute("aria-expanded", "false");
+    resetPowerIcon();
+}
+
+function openPowerMenu() {
+    closeMenu();
+
+    powerContainer.classList.add("open");
+    powerButton.setAttribute("aria-expanded", "true");
+
+    powerDropdown.querySelector(".power-option").focus();
+}
+
+powerButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+
+    if (powerContainer.classList.contains("open")) {
+        closePowerMenu();
+    } else {
+        openPowerMenu();
+    }
+});
+
+document.addEventListener("click", (e) => {
+    if (!powerContainer.contains(e.target)) {
+        closePowerMenu();
+    }
+});
+powerContainer.addEventListener("mouseleave", () => {
+    resetPowerIcon();
+});
+volumeSlider.addEventListener("keydown", (e) => {
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+        e.preventDefault();
+    }
+});
+document.addEventListener("keyup", (e) => {
+    if (isBind("left", e.key) || isBind("right", e.key)) {
+        stopVolumeRepeat();
+    }
+
+    if (isBind("confirm", e.key) || isBind("activate", e.key)) {
+        if (powerHoldButton) {
+            endPowerHold(powerHoldButton);
+        }
+    }
+});
+document.querySelector(".volume-control").addEventListener("click", (e) => {
+    if (e.target !== volumeSlider) {
+        toggleMute();
+    }
+});
+</script>
+
+</body>
+</html>
