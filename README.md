@@ -15,7 +15,7 @@ Supports mouse, keyboard and gamepads
 Features settings and shutdown options
 
 <img width="337" height="540" alt="2026-11-12 17-30-54-836" src="https://github.com/user-attachments/assets/56148980-988f-441a-a274-a0a6ffabb8ae" />
-
+(just realized you can open windows settings as it's part of explorer.exe; oops.)
 
 <img width="337" height="307" alt="image" src="https://github.com/user-attachments/assets/583c21ed-db31-4eb9-a222-2bbaf6244703" />
 <img width="337" height="307" alt="image" src="https://github.com/user-attachments/assets/08316c11-b986-447c-837f-e4b251e1ea95" />
