@@ -371,8 +371,90 @@ def find_steam():
             continue
 
     return None
+# ============================================================
+# WINDOWS VOLUME AND BRIGHTNESS
+# ============================================================
+
+def get_system_volume():
+    try:
+        from pycaw.pycaw import AudioUtilities
+
+        device = AudioUtilities.GetSpeakers()
+        volume = device.EndpointVolume
+
+        return round(volume.GetMasterVolumeLevelScalar() * 100)
+
+    except Exception as error:
+        print("[VOLUME] Failed to read:", error)
+        return None
 
 
+def set_system_volume(value):
+    try:
+        from pycaw.pycaw import AudioUtilities
+
+        value = max(0, min(100, int(value))) / 100
+
+        device = AudioUtilities.GetSpeakers()
+        volume = device.EndpointVolume
+
+        volume.SetMasterVolumeLevelScalar(value, None)
+        return True
+
+    except Exception as error:
+        print("[VOLUME] Failed to set:", error)
+        return False
+
+
+def get_screen_brightness():
+    try:
+        import screen_brightness_control as sbc
+
+        displays = sbc.list_monitors()
+        if not displays:
+            return None
+
+        brightness = sbc.get_brightness(display=0)
+
+        if isinstance(brightness, list):
+            brightness = brightness[0] if brightness else None
+
+        if brightness is None:
+            return None
+
+        return int(brightness)
+
+    except Exception as error:
+        print("[BRIGHTNESS] Not supported:", error)
+        return None
+
+
+def set_screen_brightness(value):
+    try:
+        import screen_brightness_control as sbc
+
+        value = max(0, min(100, int(value)))
+
+        sbc.set_brightness(value, display=0)
+        return True
+
+    except Exception as error:
+        print("[BRIGHTNESS] Failed to set:", error)
+        return False
+def can_control_brightness():
+    try:
+        import screen_brightness_control as sbc
+
+        brightness = sbc.get_brightness(display=0)
+
+        if isinstance(brightness, list):
+            brightness = brightness[0] if brightness else None
+
+        return brightness is not None
+
+    except Exception as error:
+        print("[BRIGHTNESS] Capability check failed:", error)
+        return False
 # ============================================================
 # APPLICATION
 # ============================================================
@@ -455,6 +537,8 @@ try:
             return has_battery()
         def steam_desktop_console_available(self):
             return STEAM_DESKTOP_CONSOLE
+        def can_control_brightness(self):
+            return can_control_brightness()
         def launch_action(self, action):
 
             if action == "cmd":
@@ -466,10 +550,18 @@ try:
                     ),
                     creationflags=subprocess.CREATE_NEW_CONSOLE
                 )
+        def get_system_volume(self):
+            return get_system_volume()
 
-            elif action == "settings":
-                os.startfile("ms-settings:")
+        def set_system_volume(self, value):
+            return set_system_volume(value)
 
+        def get_screen_brightness(self):
+            return get_screen_brightness()
+
+        def set_screen_brightness(self, value):
+            return set_screen_brightness(value)
+        
         def power_action(self, action):
             global chosen
 
