@@ -886,6 +886,7 @@ body.input-mode-keys .power-option[data-power="logoff"]:focus .dropdown-icon {
 
 #volume-value {
     color: #E6E8EB;
+    transition: color .2s ease;
 }
 
 .volume-slider {
@@ -894,8 +895,33 @@ body.input-mode-keys .power-option[data-power="logoff"]:focus .dropdown-icon {
     accent-color: #E6E8EB;
     cursor: pointer;
 }
+.control-value {
+    color: #E6E8EB;
+    transition: color .2s ease;
+}
+/* muted */
+#system-volume-control.is-zero label,
+#system-volume-control.is-zero .control-value {
+    color: #777F8D;
+}
+
+#system-volume-control.is-zero .volume-slider {
+    accent-color: #777F8D;
+    opacity: 0.55;
+}
+#ui-volume-control.is-zero label,
+#ui-volume-control.is-zero #volume-value {
+    color: #777F8D;
+}
+
+#ui-volume-control.is-zero .volume-slider {
+    accent-color: #777F8D;
+    opacity: 0.55;
+}
+#brightness-control {
+    display: none;
+}
 /* Shut down prompt setting */
-/* Power confirmation setting */
 
 .power-setting {
     display: flex;
@@ -1283,7 +1309,6 @@ body.input-mode-keys .confirm-dialog #power-confirm-yes.selected {
 
         <div class="menu-dropdown" id="menu-dropdown">
             <button class="menu-option" data-action="cmd">Launch Cmd</button>
-            <button class="menu-option" data-action="settings">Win Settings</button>
             <button
                 class="settings-tab-button"
                 id="power-settings-button"
@@ -1336,9 +1361,41 @@ body.input-mode-keys .confirm-dialog #power-confirm-yes.selected {
                     <div class="cursor-placeholder"></div>
                 </div>
             </div>
-            <div class="volume-control">
+            <div class="volume-control" id="brightness-control">
+                <label for="brightness-slider">
+                    Brightness
+                    <span class="control-value" id="brightness-value">--%</span>
+                </label>
+            
+                <input
+                    type="range"
+                    id="brightness-slider"
+                    class="volume-slider"
+                    min="0"
+                    max="100"
+                    value="50"
+                    step="1"
+                >
+            </div>
+            <div class="volume-control" id="system-volume-control">
+                <label for="system-volume-slider">
+                    System Volume
+                    <span class="control-value" id="system-volume-value">--%</span>
+                </label>
+            
+                <input
+                    type="range"
+                    id="system-volume-slider"
+                    class="volume-slider"
+                    min="0"
+                    max="100"
+                    value="50"
+                    step="1"
+                >
+            </div>
+            <div class="volume-control" id="ui-volume-control">
                 <label for="volume-slider">
-                    UI VOLUME
+                    UI Volume
                     <span id="volume-value">50%</span>
                 </label>
                 <input
@@ -1425,61 +1482,99 @@ body.input-mode-keys .confirm-dialog #power-confirm-yes.selected {
     windowsCancel: "./Assets/Sfx/Steam/Deck UI Side Menu Fly Out.mp3",
     windowsUnlock: "./Assets/Sfx/Win10/Windows Unlock.mp3",
     windowslogon: "./Assets/Sfx/Win10/Windows Logon.mp3",
+
+    win10vol: "./Assets/Sfx/Win10/Windows Background.wav",
 };
 const volumeSlider = document.getElementById("volume-slider");
 const volumeValue = document.getElementById("volume-value");
+function toggleMute(slider, storageKey, scale = 1) {
+    const currentVolume = Number(slider.value);
+    const storedVolume = localStorage.getItem(storageKey);
 
-function adjustVolume(delta) {
-    const previousVolume = uiVolume;
-
-    setUiVolume(uiVolume + delta);
-
-    if (uiVolume !== previousVolume) {
-        playSound("volume");
-    }
-}
-function toggleMute() {
-    if (uiVolume > 0) {
-        lastUnmutedVolume = uiVolume;
-        localStorage.setItem(
-            "shellChooserUnmutedVolume",
-            lastUnmutedVolume
-        );
-        playSound("volume");
-        setUiVolume(0);
+    if (currentVolume > 0) {
+        localStorage.setItem(storageKey, currentVolume / scale);
+        slider.value = 0;
     } else {
-        setUiVolume(lastUnmutedVolume);
+        const savedVolume = storedVolume === null
+            ? NaN
+            : Number(storedVolume);
+
+        const restoreVolume = Number.isFinite(savedVolume) && savedVolume > 0
+            ? savedVolume * scale
+            : 50;
+
+        slider.value = Math.min(Number(slider.max), restoreVolume);
+    }
+
+    slider.dispatchEvent(new Event("input"));
+    if (sliderRepeatTarget === systemVolumeSlider) {
+        playSound("win10vol");
+    } else {
         playSound("volume");
     }
+    
 }
-let volumeRepeatInterval = null;
-let volumeRepeatDirection = null;
+function getActiveSlider() {
+    const active = document.activeElement;
 
-function startVolumeRepeat(direction) {
-    if (volumeRepeatDirection === direction) return;
+    return active?.classList.contains("volume-slider")
+        ? active
+        : null;
+}
+let sliderRepeatInterval = null;
+let sliderRepeatDirection = null;
+let sliderRepeatTarget = null;
 
-    stopVolumeRepeat();
+function adjustFocusedSlider(slider, direction) {
+    const previous = Number(slider.value);
+    const step = 5;
 
-    volumeRepeatDirection = direction;
+    const value = Math.max(
+        Number(slider.min),
+        Math.min(Number(slider.max), previous + direction * step)
+    );
 
-    const delta = direction === "left" ? -0.05 : 0.05;
+    if (value === previous) return;
 
-    // Adjust immediately.
-    adjustVolume(delta);
+    slider.value = value;
+    slider.dispatchEvent(new Event("input"));
 
-    // Repeat every 250 ms while held.
-    volumeRepeatInterval = setInterval(() => {
-        adjustVolume(delta);
-    }, 250);
+    playSound(
+        slider === brightnessSlider ? "misc" : "volume"
+    );
 }
 
-function stopVolumeRepeat() {
-    clearInterval(volumeRepeatInterval);
-    volumeRepeatInterval = null;
-    volumeRepeatDirection = null;
+function startSliderRepeat(slider, direction) {
+    if (
+        sliderRepeatTarget === slider &&
+        sliderRepeatDirection === direction
+    ) return;
+
+    stopSliderRepeat();
+
+    sliderRepeatTarget = slider;
+    sliderRepeatDirection = direction;
+
+    adjustFocusedSlider(slider, direction);
+
+    sliderRepeatInterval = setInterval(() => {
+        adjustFocusedSlider(slider, direction);
+    }, 100);
+}
+
+function stopSliderRepeat() {
+    if (sliderRepeatTarget === systemVolumeSlider) {
+        playSound("win10vol");
+    }
+    clearInterval(sliderRepeatInterval);
+
+    sliderRepeatInterval = null;
+    sliderRepeatDirection = null;
+    sliderRepeatTarget = null;
 }
 const savedVolume = localStorage.getItem("shellChooserVolume");
 const savedUnmutedVolume = localStorage.getItem("shellChooserUnmutedVolume");
+
 
 let uiVolume = savedVolume === null
     ? 0.5
@@ -1504,6 +1599,7 @@ for (const [name, path] of Object.entries(soundFiles)) {
 
 function setUiVolume(value) {
     uiVolume = Math.max(0, Math.min(1, value));
+
     if (uiVolume > 0) {
         lastUnmutedVolume = uiVolume;
         localStorage.setItem(
@@ -1518,7 +1614,8 @@ function setUiVolume(value) {
 
     volumeSlider.value = Math.round(uiVolume * 100);
     volumeValue.textContent = `${Math.round(uiVolume * 100)}%`;
-
+    document.getElementById("ui-volume-control")
+    .classList.toggle("is-zero", uiVolume === 0);
     localStorage.setItem("shellChooserVolume", uiVolume);
 }
 volumeSlider.addEventListener("input", () => {
@@ -1529,6 +1626,129 @@ volumeSlider.addEventListener("change", () => {
     playSound("volume");
 });
 setUiVolume(uiVolume);
+// ---------- Windows system controls ----------
+
+const systemVolumeSlider =
+    document.getElementById("system-volume-slider");
+
+const systemVolumeValue =
+    document.getElementById("system-volume-value");
+
+const systemVolumeControl =
+    document.getElementById("system-volume-control");
+
+const brightnessSlider =
+    document.getElementById("brightness-slider");
+
+const brightnessValue =
+    document.getElementById("brightness-value");
+
+const brightnessControl =
+    document.getElementById("brightness-control");
+
+
+function updateSystemControlUI(slider, label, container, value) {
+    slider.value = value;
+    label.textContent = `${value}%`;
+
+    container.classList.toggle("is-zero", Number(value) <= 0);
+}
+
+
+async function initializeSystemControls() {
+    if (!window.pywebview || !window.pywebview.api) return;
+
+    // SYSTEM VOLUME
+    try {
+        const volume = await window.pywebview.api.get_system_volume();
+
+        if (volume !== null && volume !== undefined) {
+            updateSystemControlUI(
+                systemVolumeSlider,
+                systemVolumeValue,
+                systemVolumeControl,
+                volume
+            );
+        } else {
+            systemVolumeSlider.disabled = true;
+            systemVolumeValue.textContent = "Unavailable";
+        }
+    } catch (error) {
+        console.error("[VOLUME] Initialization failed:", error);
+        systemVolumeSlider.disabled = true;
+        systemVolumeValue.textContent = "Unavailable";
+    }
+
+    // SCREEN BRIGHTNESS
+    try {
+        const supported =
+            await window.pywebview.api.can_control_brightness();
+
+        if (!supported) {
+            brightnessControl.style.display = "none";
+            return;
+        }
+
+        const brightness =
+            await window.pywebview.api.get_screen_brightness();
+
+        if (brightness !== null && brightness !== undefined) {
+            updateSystemControlUI(
+                brightnessSlider,
+                brightnessValue,
+                brightnessControl,
+                brightness
+            );
+
+            brightnessControl.style.display = "flex";
+        } else {
+            brightnessControl.style.display = "none";
+        }
+
+    } catch (error) {
+        console.error("[BRIGHTNESS] Initialization failed:", error);
+        brightnessControl.style.display = "none";
+    }
+}
+
+
+systemVolumeSlider.addEventListener("input", async () => {
+    const value = Number(systemVolumeSlider.value);
+
+    updateSystemControlUI(
+        systemVolumeSlider,
+        systemVolumeValue,
+        systemVolumeControl,
+        value
+    );
+
+    try {
+        await window.pywebview.api.set_system_volume(value);
+    } catch (error) {
+        console.error("[VOLUME] Update failed:", error);
+    }
+});
+
+
+brightnessSlider.addEventListener("input", async () => {
+    const value = Number(brightnessSlider.value);
+
+    updateSystemControlUI(
+        brightnessSlider,
+        brightnessValue,
+        brightnessControl,
+        value
+    );
+
+    try {
+        await window.pywebview.api.set_screen_brightness(value);
+    } catch (error) {
+        console.error("[BRIGHTNESS] Update failed:", error);
+    }
+});
+
+
+window.addEventListener("pywebviewready", initializeSystemControls);
 let stopsound = false
 function playSound(name, skip = 0) {
     if (stopsound) return;
@@ -1722,7 +1942,7 @@ function playSound(name, skip = 0) {
    // ---------- mouse ----------
      tiles.forEach((tile) => {
        tile.addEventListener("click", () => {
-         if (locked) {e.preventDefault(); return;}
+         if (locked) return;
          if (confirming) {
            if (tile === pendingTile) {
              launchSelection();
@@ -1826,7 +2046,7 @@ function playSound(name, skip = 0) {
     } else if (pendingChoice === "explorer") {
         playSound("windowsCancel");
         playSound("windowsBackground", 0.3);
-       // playSound("chimes", 0.25);
+       //playSound("win10vol", 0.3);
     }
 
     confirming = false;
@@ -1897,7 +2117,9 @@ function playSound(name, skip = 0) {
                   return !legacyCursorEnabled && option === cursorChoices[0];
               }
   
-              return true;
+              return !option.disabled &&
+                     option.getClientRects().length > 0 &&
+                     getComputedStyle(option).visibility !== "hidden";
           });
       }
   
@@ -2008,34 +2230,47 @@ function playSound(name, skip = 0) {
       if (activeDropdown) {
          const options = getDropdownOptions();
         
-          const current = options.indexOf(document.activeElement);
-          if (document.activeElement === volumeSlider) {
-            if (isBind("left", e.key)) {
-                e.preventDefault();
-                startVolumeRepeat("left");
-            } else if (isBind("right", e.key)) {
-                e.preventDefault();
-                startVolumeRepeat("right"); 
-            } else if (isBind("activate", e.key)) {
-                e.preventDefault();
-                toggleMute();
-            } else if (isBind("up", e.key) || isBind("down", e.key)) {
+         const activeSlider = getActiveSlider();
+          
+          if (activeSlider) {
+              if (isBind("left", e.key)) {
                   e.preventDefault();
-                  stopVolumeRepeat();
-                  const current = options.indexOf(volumeSlider);
-                  const next = isBind("up", e.key) ? current - 1 : current + 1;
+                  startSliderRepeat(activeSlider, -1);
+          
+              } else if (isBind("right", e.key)) {
+                  e.preventDefault();
+                  startSliderRepeat(activeSlider, 1);
+          
+              } else if (isBind("activate", e.key)) {
+                  e.preventDefault();
+          
+                  if (activeSlider === volumeSlider) {
+                      toggleMute(volumeSlider, "shellChooserUnmutedVolume", 100);
+                  } else if (activeSlider === systemVolumeSlider) {
+                      toggleMute(systemVolumeSlider, "shellChooserSystemUnmutedVolume");
+                  }
+              } else if (isBind("up", e.key) || isBind("down", e.key)) {
+                  e.preventDefault();
+                  stopSliderRepeat();
+          
+                  const current = options.indexOf(activeSlider);
+                  const next = isBind("up", e.key)
+                      ? current - 1
+                      : current + 1;
           
                   options[(next + options.length) % options.length].focus();
               }
           
               return;
           }
-          if (isBind("down", e.key)) {
-              e.preventDefault();
-              options[(current + 1) % options.length].focus();
-          } else if (isBind("up", e.key)) {
-              e.preventDefault();
-              options[(current - 1 + options.length) % options.length].focus();
+            const current = options.indexOf(document.activeElement);
+            if (isBind("down", e.key)) {
+                e.preventDefault();
+                options[(current + 1 + options.length) % options.length].focus();
+            
+            } else if (isBind("up", e.key)) {
+                e.preventDefault();
+                options[(current - 1 + options.length) % options.length].focus();
             } else if (
                 activeDropdown === powerDropdown &&
                 isBind("right", e.key)
@@ -2266,15 +2501,19 @@ function pollGamepad() {
                 if (confirming && document.activeElement === steamDesktopToggle) {
                     steamDesktopToggle.click();
                 } else if (focusZone === "status") {
-                if (document.activeElement === volumeSlider) {
-                    toggleMute();
+                    const activeSlider = getActiveSlider();
+                
+                    if (activeSlider === volumeSlider) {
+                        toggleMute(volumeSlider, "shellChooserUnmutedVolume", 100);
+                    } else if (activeSlider === systemVolumeSlider) {
+                        toggleMute(systemVolumeSlider, "shellChooserSystemUnmutedVolume");
+                    } else {
+                        document.activeElement.click();
+                    }
                 } else {
-                    document.activeElement.click();
+                    confirmSelection();
                 }
-             } else {
-                 confirmSelection();
-             }
-         }
+            }
 
           // Start button
         if (start && !gpPrevStart &&
@@ -2320,16 +2559,18 @@ function pollGamepad() {
                     }
                 }
             } else if (menuOpen || powerOpen) {
-                if (menuOpen && document.activeElement === volumeSlider) {
+                const activeSlider = getActiveSlider();
+                
+                if (menuOpen && activeSlider) {
                     if (left && !right) {
-                        startVolumeRepeat("left");
+                        startSliderRepeat(activeSlider, -1);
                     } else if (right && !left) {
-                        startVolumeRepeat("right");
+                        startSliderRepeat(activeSlider, 1);
                     } else {
-                        stopVolumeRepeat();
+                        stopSliderRepeat();
                     }
                 } else {
-                    stopVolumeRepeat();
+                    stopSliderRepeat();
                 }
                 // Left / Right navigation
                 if (
@@ -2354,7 +2595,7 @@ function pollGamepad() {
                 } else if (
                     left && !gpPrevLeft &&
                     menuOpen &&
-                    document.activeElement !== volumeSlider
+                    !document.activeElement.classList.contains("volume-slider")
                 ) {
                     closeMenu();
                     powerButton.focus();
@@ -3082,14 +3323,16 @@ document.addEventListener("click", (e) => {
 powerContainer.addEventListener("mouseleave", () => {
     resetPowerIcon();
 });
-volumeSlider.addEventListener("keydown", (e) => {
-    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
-        e.preventDefault();
-    }
+document.querySelectorAll(".volume-slider").forEach(slider => {
+    slider.addEventListener("keydown", (e) => {
+        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+            e.preventDefault();
+        }
+    });
 });
 document.addEventListener("keyup", (e) => {
     if (isBind("left", e.key) || isBind("right", e.key)) {
-        stopVolumeRepeat();
+        stopSliderRepeat();
     }
 
     if (isBind("confirm", e.key) || isBind("activate", e.key)) {
@@ -3098,10 +3341,25 @@ document.addEventListener("keyup", (e) => {
         }
     }
 });
-document.querySelector(".volume-control").addEventListener("click", (e) => {
-    if (e.target !== volumeSlider) {
-        toggleMute();
-    }
+
+[volumeSlider, systemVolumeSlider].forEach(slider => {
+    slider.closest(".volume-control").addEventListener("click", e => {
+        if (e.target === slider) return;
+
+        if (slider === volumeSlider) {
+            toggleMute(slider, "shellChooserUnmutedVolume", 100);
+        } else {
+            toggleMute(slider, "shellChooserSystemUnmutedVolume");
+        }
+    });
+});
+// Play sound once when the user finishes adjusting a slider.
+systemVolumeSlider.addEventListener("change", () => {
+    playSound("win10vol");
+});
+
+brightnessSlider.addEventListener("change", () => {
+    playSound("misc");
 });
 </script>
 
